@@ -676,7 +676,9 @@ ifneq ($(ld-name),lld)
 # use GNU gold with LLVMgold for LTO linking, and LD for vmlinux_link
 LDFINAL_vmlinux := $(LD)
 LD		:= $(LDGOLD)
-LDFLAGS		+= -plugin LLVMgold.so
+LDFLAGS		+= --plugin=LLVMgold.so
+LDFLAGS		+= --plugin-opt=-function-sections
+LDFLAGS		+= --plugin-opt=-data-sections
 endif
 # use llvm-ar for building symbol tables from IR files, and llvm-dis instead
 # of objdump for processing symbol versions and exports
@@ -905,20 +907,21 @@ endif
 
 ifdef CONFIG_LTO_CLANG
 ifdef CONFIG_THINLTO
-lto-clang-flags	:= -flto=thin
-LDFLAGS		+= --thinlto-cache-dir=.thinlto-cache
+ifdef KERNEL_THINLTO_CACHE_PATH
+THINLTO_CACHE_PATH := $(KERNEL_THINLTO_CACHE_PATH)
 else
-lto-clang-flags	:= -flto
+THINLTO_CACHE_PATH := .thinlto-cache
 endif
-lto-clang-flags += -fvisibility=default $(call cc-option, -fsplit-lto-unit)
+ifeq ($(ld-name),lld)
+lld-flags	:= --thinlto-cache-dir=$(THINLTO_CACHE_PATH)
+lld-flags	+= --thinlto-cache-policy=cache_size=5%:cache_size_bytes=5g
+else ifeq ($(ld-name),gold)
+gold-flags	:= --plugin-opt=cache-dir=$(THINLTO_CACHE_PATH)
+gold-flags	+= --plugin-opt=cache-policy=cache_size=5%:cache_size_bytes=5g
+endif
+endif
 
-# Limit inlining across translation units to reduce binary size
-LD_FLAGS_LTO_CLANG := -mllvm -import-instr-limit=5
-
-KBUILD_LDFLAGS += $(LD_FLAGS_LTO_CLANG)
-KBUILD_LDFLAGS_MODULE += $(LD_FLAGS_LTO_CLANG)
-
-KBUILD_LDFLAGS_MODULE += -T scripts/module-lto.lds
+LDFLAGS += $(lld-flags) $(gold-flags)
 
 # allow disabling only clang LTO where needed
 DISABLE_LTO_CLANG := -fno-lto
